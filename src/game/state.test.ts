@@ -1,0 +1,41 @@
+import { describe, expect, it } from "vitest";
+import { GameFlow } from "./state";
+
+describe("GameFlow", () => {
+  it("walks the happy path menu → countdown → playing → gameover", () => {
+    const g = new GameFlow();
+    expect(g.state).toBe("menu");
+    g.start();
+    expect(g.state).toBe("countdown");
+    g.countdownDone();
+    expect(g.state).toBe("playing");
+    g.gameOver();
+    expect(g.state).toBe("gameover");
+  });
+
+  it("replay returns to countdown, toMenu returns home", () => {
+    const g = new GameFlow();
+    g.start();
+    g.countdownDone();
+    g.gameOver();
+    g.replay();
+    expect(g.state).toBe("countdown");
+    g.countdownDone();
+    g.gameOver();
+    g.toMenu();
+    expect(g.state).toBe("menu");
+  });
+
+  it("ignores illegal transitions", () => {
+    const g = new GameFlow();
+    g.countdownDone(); // not in countdown
+    expect(g.state).toBe("menu");
+    g.gameOver(); // not playing
+    expect(g.state).toBe("menu");
+    g.start();
+    g.start(); // already counting down
+    expect(g.state).toBe("countdown");
+    g.replay(); // not in gameover
+    expect(g.state).toBe("countdown");
+  });
+});
