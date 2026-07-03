@@ -77,13 +77,111 @@ export function drawScore(ctx: CanvasRenderingContext2D, score: number, best: nu
   ctx.restore();
 }
 
+// Stage progress under the score: 「第X幕」 + 本幕得分/目标.
+export function drawStageInfo(ctx: CanvasRenderingContext2D, stage: number, stageScore: number, target: number): void {
+  ctx.save();
+  ctx.textAlign = "left";
+  ctx.textBaseline = "top";
+  ctx.font = font(22);
+  ctx.fillStyle = INK;
+  const label = stage <= 10 ? `第${CN_NUM[stage]}幕` : `第${stage}幕`;
+  ctx.fillText(label, 31, 118);
+  ctx.font = font(17, 400);
+  ctx.fillStyle = stageScore >= target ? "#4a6a3a" : "rgba(42, 35, 32, 0.65)";
+  ctx.fillText(`目标 ${Math.min(stageScore, target)} / ${target}`, 31, 146);
+  ctx.restore();
+}
+
+// Stage timer as a burning incense stick (一炷香) on the right edge: the
+// remaining fraction is the unburnt length; an ember glows at the tip.
+export function drawIncenseTimer(ctx: CanvasRenderingContext2D, w: number, h: number, fraction: number): void {
+  const x = w - 34;
+  const top = h * 0.24;
+  const len = h * 0.42;
+  const f = Math.max(0, Math.min(1, fraction));
+  const burntTo = top + len * (1 - f);
+
+  ctx.save();
+  // Holder dish at the bottom.
+  ctx.fillStyle = "rgba(42, 35, 32, 0.55)";
+  ctx.beginPath();
+  ctx.ellipse(x, top + len + 12, 14, 5, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Remaining stick.
+  ctx.strokeStyle = "rgba(94, 66, 50, 0.85)";
+  ctx.lineWidth = 6;
+  ctx.lineCap = "round";
+  ctx.beginPath();
+  ctx.moveTo(x, burntTo);
+  ctx.lineTo(x, top + len + 6);
+  ctx.stroke();
+
+  if (f > 0) {
+    // Ember + a wisp of smoke.
+    const flicker = 0.75 + 0.25 * Math.sin(performance.now() / 90);
+    ctx.fillStyle = `rgba(216, 96, 40, ${flicker})`;
+    ctx.beginPath();
+    ctx.arc(x, burntTo, 4, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = "rgba(90, 85, 80, 0.3)";
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(x, burntTo - 6);
+    ctx.quadraticCurveTo(x + 6, burntTo - 18, x - 3, burntTo - 30);
+    ctx.stroke();
+    // Low-time warning: the last 25% pulses red.
+    if (f < 0.25) {
+      ctx.fillStyle = `rgba(179, 55, 43, ${0.25 * flicker})`;
+      ctx.beginPath();
+      ctx.arc(x, burntTo, 10, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+  ctx.restore();
+}
+
+// Interstitial between stages: 「第X幕 完」 + the next act's target.
+export function drawStageBanner(
+  ctx: CanvasRenderingContext2D,
+  w: number,
+  h: number,
+  clearedStage: number,
+  nextTarget: number,
+  t01: number
+): void {
+  const alpha = t01 < 0.15 ? t01 / 0.15 : t01 > 0.85 ? (1 - t01) / 0.15 : 1;
+  ctx.save();
+  ctx.globalAlpha = Math.max(0, Math.min(1, alpha));
+  ctx.textAlign = "center";
+  ctx.textBaseline = "alphabetic";
+  ctx.fillStyle = INK;
+  ctx.font = font(72);
+  const label = clearedStage <= 10 ? `第${CN_NUM[clearedStage]}幕 · 完` : `第${clearedStage}幕 · 完`;
+  ctx.fillText(label, w / 2, h * 0.42);
+  ctx.font = font(24, 400);
+  ctx.fillStyle = "rgba(42, 35, 32, 0.7)";
+  ctx.fillText(`下一幕 目标 ${nextTarget}`, w / 2, h * 0.42 + 48);
+
+  ctx.translate(w / 2 + 190, h * 0.42 - 24);
+  ctx.rotate(0.08);
+  ctx.fillStyle = SEAL_RED;
+  ctx.fillRect(-24, -24, 48, 48);
+  ctx.fillStyle = "#f6efdf";
+  ctx.font = font(20);
+  ctx.textBaseline = "middle";
+  ctx.fillText("見", 0, -9);
+  ctx.fillText("参", 0, 11);
+  ctx.restore();
+}
+
 // Active talisman effects under the score: 「凍 2.1s」「倍 4.3s」.
 export function drawEffects(ctx: CanvasRenderingContext2D, remaining: { slow: number; double: number }): void {
   ctx.save();
   ctx.textAlign = "left";
   ctx.textBaseline = "top";
   ctx.font = font(20);
-  let y = 120;
+  let y = 182; // below the stage info block
   if (remaining.slow > 0) {
     ctx.fillStyle = "#4a6a96";
     ctx.fillText(`凍 ${remaining.slow.toFixed(1)}s`, 31, y);

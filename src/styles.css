@@ -32,22 +32,15 @@ body {
   touch-action: none;
 }
 
-/* Camera preview: tiny, ink-framed, bottom-left. Hidden until tracking starts. */
+/* The raw camera element stays technically visible (some browsers stall frame
+   delivery for display:none videos) but is imperceptible — the player sees
+   themselves via the full-screen ink-wash ghost drawn on the game canvas. */
 #cam {
   position: absolute;
-  left: 14px;
-  bottom: 14px;
-  width: 148px;
-  border: 2px solid rgba(42, 35, 32, 0.55);
-  border-radius: 3px;
-  box-shadow: 2px 3px 0 rgba(42, 35, 32, 0.18);
-  transform: scaleX(-1);
-  filter: grayscale(0.7) contrast(1.05) sepia(0.12);
-  opacity: 0;
+  left: 0;
+  bottom: 0;
+  width: 2px;
+  height: 2px;
+  opacity: 0.01;
   pointer-events: none;
-  transition: opacity 0.4s ease;
-}
-
-#cam.cam-on {
-  opacity: 0.9;
 }

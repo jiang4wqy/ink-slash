@@ -27,12 +27,12 @@ describe("Scoring", () => {
     expect(later.combo).toBe(1);
   });
 
-  it("counts down 3 lives on misses and reports game over at zero", () => {
+  it("tolerates two bomb hits and reports elimination on the third", () => {
     const s = new Scoring();
     expect(s.lives).toBe(3);
-    expect(s.missFruit()).toBe(2);
-    expect(s.missFruit()).toBe(1);
-    expect(s.missFruit()).toBe(0);
+    expect(s.hitBomb()).toBe(2);
+    expect(s.hitBomb()).toBe(1);
+    expect(s.hitBomb()).toBe(0);
   });
 
   it("applies a score multiplier to base points and combo bonus", () => {
@@ -47,16 +47,16 @@ describe("Scoring", () => {
   it("restoreLife adds one ink drop, capped at 3", () => {
     const s = new Scoring();
     expect(s.restoreLife()).toBe(3); // already full
-    s.missFruit();
-    s.missFruit();
+    s.hitBomb();
+    s.hitBomb();
     expect(s.restoreLife()).toBe(2);
     expect(s.lives).toBe(2);
   });
 
-  it("reset restores score, combo and lives", () => {
+  it("reset restores score, combo and bomb tolerance", () => {
     const s = new Scoring();
     s.addSlice(1000);
-    s.missFruit();
+    s.hitBomb();
     s.reset();
     expect(s.score).toBe(0);
     expect(s.lives).toBe(3);

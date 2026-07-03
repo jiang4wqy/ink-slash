@@ -8,7 +8,8 @@ import { segmentCircleHit } from "./game/collision";
 import { GRAVITY, isOffscreen, sliceFruit, stepFruit } from "./game/fruit";
 import type { Fruit, FruitHalf } from "./game/fruit";
 import { Scoring, BestScore } from "./game/scoring";
-import { Spawner, waveInterval } from "./game/spawner";
+import { Spawner } from "./game/spawner";
+import { StageRun } from "./game/stage";
 import { Effects } from "./game/effects";
 import type { TalismanKind } from "./game/effects";
 import { GameFlow } from "./game/state";
@@ -25,16 +26,21 @@ import {
   drawGameOverPanel,
   drawLives,
   drawScore,
+  drawStageBanner,
+  drawStageInfo,
+  drawIncenseTimer,
   drawTitle,
   hitButton
 } from "./render/hud";
 import type { ButtonSpec, ComboStamp } from "./render/hud";
 import { drawFruit, drawHalf } from "./render/fruitPainter";
-import { makePaperCanvas } from "./render/paper";
+import { makePaperCanvas, seasonForStage } from "./render/paper";
+import type { Season } from "./render/paper";
 import { SplashSystem, JUICE } from "./render/splash";
-import { drawTrail } from "./render/trail";
+import { drawKatana, drawTrail } from "./render/trail";
 
 const COUNTDOWN_SEC = 3;
+const STAGECLEAR_MS = 2600;
 const MAX_AIRBORNE = 14;
 const SLOWMO_MS = 600;
 const SLOWMO_SCALE = 0.35;
@@ -49,6 +55,7 @@ const ctx = canvas.getContext("2d")!;
 let viewW = 0;
 let viewH = 0;
 let paper: HTMLCanvasElement | null = null;
+let currentSeason: Season = 0;
 
 function fitCanvas(): void {
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -57,7 +64,7 @@ function fitCanvas(): void {
   canvas.width = Math.max(1, Math.floor(viewW * dpr));
   canvas.height = Math.max(1, Math.floor(viewH * dpr));
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  paper = makePaperCanvas(viewW, viewH);
+  paper = makePaperCanvas(viewW, viewH, currentSeason);
 }
 window.addEventListener("resize", fitCanvas);
 fitCanvas();
@@ -91,20 +98,50 @@ const effects = new Effects();
 let fruits: Fruit[] = [];
 let halves: FruitHalf[] = [];
 let stamps: ComboStamp[] = [];
+let stageRun = new StageRun(1);
+let stageClearStartedAt = 0;
 let countdownEndsAt = 0;
 let nextWaveAt = 0;
 let slowmoUntil = 0;
 let shake = 0;
-let endedByBomb = false;
+let gameOverReason: "bomb" | "time" | null = null;
+let finalShortfall = 0;
 let isNewRecord = false;
 let menuError: string | null = null;
 let cameraLoading = false;
 
 // --- Input: blades (mouse or fingertips) ---------------------------------------
-type BladeSlot = { blade: Blade; filter: OneEuroFilter2D; lastSeen: number; pos: { x: number; y: number } | null };
+type BladeSlot = {
+  blade: Blade;
+  filter: OneEuroFilter2D;
+  lastSeen: number;
+  pos: { x: number; y: number } | null;
+  angle: number;
+};
 
 function newSlot(): BladeSlot {
-  return { blade: new Blade(), filter: new OneEuroFilter2D(), lastSeen: 0, pos: null };
+  return { blade: new Blade(), filter: new OneEuroFilter2D(), lastSeen: 0, pos: null, angle: -Math.PI / 4 };
+}
+
+// Ghost level for the full-screen camera ink-wash (0 off, 1 faint, 2 strong).
+// Blended under the game, it lets you see yourself with zero occlusion, and
+// your hand lines up 1:1 with the blade.
+function loadGhost(): number {
+  try {
+    const v = Number(localStorage.getItem("ink-slash:ghost"));
+    return v === 0 || v === 2 ? v : 1;
+  } catch {
+    return 1;
+  }
+}
+let ghostLevel = loadGhost();
+function cycleGhost(): void {
+  ghostLevel = (ghostLevel + 1) % 3;
+  try {
+    localStorage.setItem("ink-slash:ghost", String(ghostLevel));
+  } catch {
+    // best-effort persistence only
+  }
 }
 
 let inputMode: "mouse" | "hand" = "mouse";
@@ -122,6 +159,7 @@ function feedBlade(slot: BladeSlot, x: number, y: number, now: number, dt: numbe
   const seg = slot.blade.push({ x: p.x, y: p.y, t: now }, viewH);
   if (seg) {
     frameSegments.push(seg);
+    if (seg.speed > 90) slot.angle = Math.atan2(seg.by - seg.ay, seg.bx - seg.ax);
     if (seg.armed && flow.state === "playing") sfx.whoosh(seg.speed);
   }
 }
@@ -173,7 +211,8 @@ function menuButtons(): ButtonSpec[] {
     return [
       { id: "camera", x, y: base, w, h: 72, label: "启用摄像头", sub: "隔空挥指斩果 · 画面仅本地处理" },
       { id: "mouse", x, y: base + 92, w, h: 60, label: "鼠标模式", sub: "无摄像头也能玩" },
-      { id: "mute", x, y: base + 172, w, h: 44, label: sfx.muted ? "音效：关" : "音效：开" }
+      { id: "mute", x, y: base + 172, w, h: 44, label: sfx.muted ? "音效：关" : "音效：开" },
+      { id: "ghost", x, y: base + 232, w, h: 44, label: `人影：${["关", "淡", "浓"][ghostLevel]}` }
     ];
   }
   if (flow.state === "gameover") {
@@ -199,6 +238,8 @@ function activateButton(id: string): void {
     void startCamera();
   } else if (id === "mute") {
     sfx.toggleMute();
+  } else if (id === "ghost") {
+    cycleGhost();
   } else if (id === "replay") {
     flow.replay();
     beginCountdown();
@@ -253,15 +294,26 @@ function beginCountdown(): void {
   stamps = [];
   splash.clear();
   effects.reset();
-  endedByBomb = false;
+  stageRun = new StageRun(1);
+  setSeason(seasonForStage(1));
+  gameOverReason = null;
+  finalShortfall = 0;
   isNewRecord = false;
   slowmoUntil = 0;
   shake = 0;
   countdownEndsAt = performance.now() + COUNTDOWN_SEC * 1000;
 }
 
-function endRun(byBomb: boolean): void {
-  endedByBomb = byBomb;
+function setSeason(season: Season): void {
+  if (season !== currentSeason) {
+    currentSeason = season;
+    paper = makePaperCanvas(viewW, viewH, currentSeason);
+  }
+}
+
+function endRun(reason: "bomb" | "time"): void {
+  gameOverReason = reason;
+  finalShortfall = stageRun.shortfall;
   isNewRecord = bestScore.update(scoring.score);
   flow.gameOver();
   sfx.bell();
@@ -292,8 +344,12 @@ function applySlices(now: number): void {
         splash.inkExplosion(f.x, f.y);
         sfx.bomb();
         shake = 26;
-        endRun(true);
-        return;
+        stamps.push({ x: f.x, y: f.y - f.r - 16, n: 0, age: 0, label: "墨爆！", color: "#2a2320" });
+        if (scoring.hitBomb() === 0) {
+          endRun("bomb");
+          return;
+        }
+        continue;
       }
 
       // Talisman pickup: activate its effect, no halves, no miss risk.
@@ -316,7 +372,8 @@ function applySlices(now: number): void {
 
       halves.push(...sliceFruit(f, dirX, dirY));
       splash.burst(f.x, f.y, dirX, dirY, JUICE[f.kind]);
-      const { combo } = scoring.addSlice(now, effects.scoreMultiplier(now));
+      const { combo, gained } = scoring.addSlice(now, effects.scoreMultiplier(now));
+      stageRun.addPoints(gained);
       sfx.slice(combo);
       if (combo >= 2) {
         stamps.push({ x: f.x, y: f.y - f.r - 16, n: combo, age: 0 });
@@ -350,23 +407,28 @@ function updateWorld(realDt: number, now: number): void {
   stamps = stamps.filter((s) => s.age < 1.1);
   shake = Math.max(0, shake - realDt * 60);
 
-  // Misses: unsliced fruit falling past the bottom.
-  const missed = fruits.filter((f) => isOffscreen(f, viewW, viewH));
-  if (missed.length > 0) {
-    fruits = fruits.filter((f) => !isOffscreen(f, viewW, viewH));
-    for (const f of missed) {
-      if (f.kind === "bomb" || f.kind.startsWith("fu_")) continue; // bombs & talismans are free to miss
-      if (scoring.missFruit() === 0) {
-        endRun(false);
-        return;
-      }
-    }
+  // Dropped fruit costs nothing — the pressure is the incense clock and bombs.
+  fruits = fruits.filter((f) => !isOffscreen(f, viewW, viewH));
+
+  // The incense clock burns in game time, so 「凍」 stretches the stage too.
+  stageRun.tick(realDt * scale * 1000);
+  if (stageRun.cleared) {
+    flow.stageClear();
+    stageClearStartedAt = now;
+    fruits = [];
+    halves = [];
+    sfx.pluck(7);
+    return;
+  }
+  if (stageRun.failed) {
+    endRun("time");
+    return;
   }
 
-  // Next wave (cadence tightens with score — 循序渐进).
+  // Next wave, at the current stage's cadence.
   if (now >= nextWaveAt && fruits.length < MAX_AIRBORNE) {
-    fruits.push(...spawner.next(scoring.score, viewW, viewH));
-    nextWaveAt = now + waveInterval(scoring.score);
+    fruits.push(...spawner.next(stageRun.config, viewW, viewH));
+    nextWaveAt = now + stageRun.config.waveIntervalMs;
   }
 }
 
@@ -443,9 +505,28 @@ function updateDwell(now: number): void {
 }
 
 // --- Render -----------------------------------------------------------------------------
+// The camera as a faint grey ink-wash across the whole paper (multiply blend):
+// you see yourself without covering the game, and your hand is exactly where
+// the blade is.
+function drawGhost(): void {
+  if (ghostLevel === 0 || inputMode !== "hand" || video.videoWidth === 0) return;
+  const p00 = mapNormToCanvas(0, 0, tracker.videoAspect, viewW, viewH);
+  const p11 = mapNormToCanvas(1, 1, tracker.videoAspect, viewW, viewH);
+  ctx.save();
+  ctx.globalCompositeOperation = "multiply";
+  ctx.globalAlpha = ghostLevel === 1 ? 0.16 : 0.3;
+  ctx.filter = "grayscale(1) contrast(0.9) brightness(1.15)";
+  // Mirror horizontally to match the mirrored blade coordinates.
+  ctx.translate(viewW, 0);
+  ctx.scale(-1, 1);
+  ctx.drawImage(video, viewW - p11.x, p00.y, p11.x - p00.x, p11.y - p00.y);
+  ctx.restore();
+}
+
 function render(now: number): void {
   ctx.clearRect(0, 0, viewW, viewH);
   if (paper) ctx.drawImage(paper, 0, 0, viewW, viewH);
+  drawGhost();
 
   ctx.save();
   if (shake > 0.5) {
@@ -476,19 +557,41 @@ function render(now: number): void {
   } else if (flow.state === "countdown") {
     drawCountdown(ctx, viewW, viewH, Math.max(0, (countdownEndsAt - now) / 1000));
     drawScore(ctx, scoring.score, bestScore.value);
+    drawStageInfo(ctx, stageRun.stage, stageRun.stageScore, stageRun.config.target);
     drawLives(ctx, scoring.lives, viewW);
   } else if (flow.state === "playing") {
     drawScore(ctx, scoring.score, bestScore.value);
+    drawStageInfo(ctx, stageRun.stage, stageRun.stageScore, stageRun.config.target);
     drawLives(ctx, scoring.lives, viewW);
+    drawIncenseTimer(ctx, viewW, viewH, stageRun.timeFraction());
     drawEffects(ctx, effects.remaining(now));
+    for (const s of slots) {
+      if (s.pos) drawKatana(ctx, s.pos.x, s.pos.y, s.angle);
+    }
+  } else if (flow.state === "stageclear") {
+    drawStageBanner(
+      ctx,
+      viewW,
+      viewH,
+      stageRun.stage,
+      stageRun.next().config.target,
+      Math.min(1, (now - stageClearStartedAt) / STAGECLEAR_MS)
+    );
+    drawScore(ctx, scoring.score, bestScore.value);
+    drawLives(ctx, scoring.lives, viewW);
   } else if (flow.state === "gameover") {
     drawGameOverPanel(ctx, viewW, viewH, scoring.score, bestScore.value, isNewRecord);
-    if (endedByBomb) {
-      ctx.font = `400 18px ${FONT_STACK}`;
-      ctx.fillStyle = "rgba(42, 35, 32, 0.65)";
-      ctx.textAlign = "center";
-      ctx.fillText("斩中了铁炮弹……", viewW / 2, viewH * 0.44);
-    }
+    ctx.font = `400 18px ${FONT_STACK}`;
+    ctx.fillStyle = "rgba(42, 35, 32, 0.65)";
+    ctx.textAlign = "center";
+    const stageLabel = `止步第${stageRun.stage}幕`;
+    ctx.fillText(
+      gameOverReason === "bomb"
+        ? `墨爆三度，刀已卷刃 —— ${stageLabel}`
+        : `一炷香尽，还差 ${finalShortfall} 分 —— ${stageLabel}`,
+      viewW / 2,
+      viewH * 0.44
+    );
   }
 
   for (const b of menuButtons()) {
@@ -530,6 +633,14 @@ if (useTimerLoop) {
       get fruits() {
         return fruits.map((f) => ({ id: f.id, kind: f.kind, x: f.x, y: f.y, r: f.r }));
       },
+      get stage() {
+        return {
+          n: stageRun.stage,
+          stageScore: stageRun.stageScore,
+          target: stageRun.config.target,
+          remainingMs: stageRun.remainingMs
+        };
+      },
       // Synchronous single frame — lets headless tests pump the loop directly,
       // immune to hidden-tab timer throttling.
       step() {
@@ -556,6 +667,12 @@ function tick(now: number): void {
     if (flow.state === "countdown" && now >= countdownEndsAt) {
       flow.countdownDone();
       nextWaveAt = now + 400;
+    }
+    if (flow.state === "stageclear" && now - stageClearStartedAt >= STAGECLEAR_MS) {
+      stageRun = stageRun.next();
+      setSeason(seasonForStage(stageRun.stage));
+      flow.stageClearDone();
+      nextWaveAt = now + 500;
     }
     if (flow.state === "playing") {
       applySlices(now);

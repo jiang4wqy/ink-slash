@@ -1,17 +1,6 @@
 import { GRAVITY, makeFruit } from "./fruit";
 import type { Fruit, FruitKind } from "./fruit";
-
-// Bomb probability ramps 8% -> 15% linearly, capped at 500 points.
-export function bombChance(score: number): number {
-  const t = Math.min(1, Math.max(0, score / 500));
-  return 0.08 + t * 0.07;
-}
-
-// Waves come faster as the score climbs, from a relaxed opening to a busy
-// late game (floor keeps it humanly playable).
-export function waveInterval(score: number): number {
-  return Math.max(1100, 1900 - score * 0.8);
-}
+import type { StageConfig } from "./stage";
 
 const FRUIT_KINDS: FruitKind[] = ["persimmon", "plum", "watermelon", "gourd"];
 const TALISMAN_KINDS: FruitKind[] = ["fu_slow", "fu_double", "fu_life"];
@@ -27,33 +16,34 @@ const RADII: Record<FruitKind, number> = {
   fu_life: 30
 };
 
-const NO_BOMB_BEFORE = 30; // opening waves stay safe
-const NO_TALISMAN_BEFORE = 50; // let players learn the base game first
-const TALISMAN_CHANCE = 0.09;
-
+// Wave generation is driven entirely by the current stage's config — density,
+// bomb danger and talisman generosity all come from stage.ts.
 export class Spawner {
   private nextId = 1;
 
   constructor(private readonly rng: () => number) {}
 
-  next(score: number, w: number, h: number): Fruit[] {
-    const size = Math.min(7, 1 + Math.floor(score / 90) + (this.rng() < 0.4 ? 1 : 0));
+  next(cfg: StageConfig, w: number, h: number): Fruit[] {
+    const size = Math.max(
+      1,
+      Math.min(cfg.maxWave, Math.ceil(cfg.maxWave * (0.5 + this.rng() * 0.5)))
+    );
     const wave: Fruit[] = [];
     for (let i = 0; i < size; i += 1) {
-      wave.push(this.spawnOne(score, w, h));
+      wave.push(this.spawnOne(w, h));
     }
 
-    // A bomb may replace one fruit — never all of them, never in the opening.
-    if (score >= NO_BOMB_BEFORE && wave.length >= 2 && this.rng() < bombChance(score)) {
+    // A bomb may replace one fruit — never all of them.
+    if (wave.length >= 2 && this.rng() < cfg.bombChance) {
       const target = wave[Math.floor(this.rng() * wave.length)];
       target.kind = "bomb";
       target.r = RADII.bomb;
     }
 
     // At most one talisman rides along as a bonus (extra, replaces nothing).
-    if (score >= NO_TALISMAN_BEFORE && this.rng() < TALISMAN_CHANCE) {
+    if (this.rng() < cfg.talismanChance) {
       const kind = TALISMAN_KINDS[Math.floor(this.rng() * TALISMAN_KINDS.length)];
-      const talisman = this.spawnOne(score, w, h);
+      const talisman = this.spawnOne(w, h);
       talisman.kind = kind;
       talisman.r = RADII[kind];
       wave.push(talisman);
@@ -61,7 +51,7 @@ export class Spawner {
     return wave;
   }
 
-  private spawnOne(_score: number, w: number, h: number): Fruit {
+  private spawnOne(w: number, h: number): Fruit {
     const kind = FRUIT_KINDS[Math.floor(this.rng() * FRUIT_KINDS.length)];
     const r = RADII[kind];
     const x = w * (0.08 + this.rng() * 0.84);

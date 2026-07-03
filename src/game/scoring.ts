@@ -2,8 +2,9 @@ const POINTS_PER_FRUIT = 10;
 const COMBO_WINDOW_MS = 400;
 const STARTING_LIVES = 3;
 
-// Score, combo chain and lives. Pure logic: time comes in as a parameter so
-// tests (and the slow-motion timescale) stay in control of the clock.
+// Score, combo chain and bomb tolerance (`lives` = ink drops left; each bomb
+// hit costs one). Pure logic: time comes in as a parameter so tests (and the
+// slow-motion timescale) stay in control of the clock.
 export class Scoring {
   score = 0;
   lives = STARTING_LIVES;
@@ -23,8 +24,8 @@ export class Scoring {
     return { combo: this.comboCount, gained };
   }
 
-  // A fruit fell off unsliced. Returns remaining lives.
-  missFruit(): number {
+  // Sliced a bomb. Three strikes and the run ends. Returns remaining drops.
+  hitBomb(): number {
     this.lives = Math.max(0, this.lives - 1);
     return this.lives;
   }

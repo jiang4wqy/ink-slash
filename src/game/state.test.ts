@@ -13,6 +13,25 @@ describe("GameFlow", () => {
     expect(g.state).toBe("gameover");
   });
 
+  it("clearing a stage passes through the interstitial and back into play", () => {
+    const g = new GameFlow();
+    g.start();
+    g.countdownDone();
+    g.stageClear();
+    expect(g.state).toBe("stageclear");
+    g.stageClearDone();
+    expect(g.state).toBe("playing");
+  });
+
+  it("stageClear is only reachable from playing", () => {
+    const g = new GameFlow();
+    g.stageClear();
+    expect(g.state).toBe("menu");
+    g.start();
+    g.stageClear();
+    expect(g.state).toBe("countdown");
+  });
+
   it("replay returns to countdown, toMenu returns home", () => {
     const g = new GameFlow();
     g.start();
