@@ -77,6 +77,25 @@ export function drawScore(ctx: CanvasRenderingContext2D, score: number, best: nu
   ctx.restore();
 }
 
+// Active talisman effects under the score: 「凍 2.1s」「倍 4.3s」.
+export function drawEffects(ctx: CanvasRenderingContext2D, remaining: { slow: number; double: number }): void {
+  ctx.save();
+  ctx.textAlign = "left";
+  ctx.textBaseline = "top";
+  ctx.font = font(20);
+  let y = 120;
+  if (remaining.slow > 0) {
+    ctx.fillStyle = "#4a6a96";
+    ctx.fillText(`凍 ${remaining.slow.toFixed(1)}s`, 31, y);
+    y += 28;
+  }
+  if (remaining.double > 0) {
+    ctx.fillStyle = SEAL_RED;
+    ctx.fillText(`倍 ${remaining.double.toFixed(1)}s`, 31, y);
+  }
+  ctx.restore();
+}
+
 // Remaining lives as ink droplets; spent lives are hollow outlines.
 export function drawLives(ctx: CanvasRenderingContext2D, lives: number, w: number): void {
   ctx.save();
@@ -101,7 +120,9 @@ export function drawLives(ctx: CanvasRenderingContext2D, lives: number, w: numbe
 
 const CN_NUM = ["", "一", "二", "三", "四", "五", "六", "七", "八", "九", "十"];
 
-export type ComboStamp = { x: number; y: number; n: number; age: number };
+// `label` overrides the default 「N连斩」 text (talisman pickups use it, with
+// `color` for a non-seal accent).
+export type ComboStamp = { x: number; y: number; n: number; age: number; label?: string; color?: string };
 
 // Red hanko seal slamming onto the paper: pops in, lingers, fades.
 export function drawComboStamp(ctx: CanvasRenderingContext2D, s: ComboStamp): void {
@@ -117,19 +138,22 @@ export function drawComboStamp(ctx: CanvasRenderingContext2D, s: ComboStamp): vo
   ctx.scale(pop, pop);
   ctx.globalAlpha = alpha;
 
-  const label = s.n <= 10 ? `${CN_NUM[s.n]}连斩` : `${s.n}连斩`;
+  const label = s.label ?? (s.n <= 10 ? `${CN_NUM[s.n]}连斩` : `${s.n}连斩`);
   ctx.font = font(26);
   const wText = ctx.measureText(label).width;
   const pad = 12;
   const w = wText + pad * 2;
   const h = 46;
 
-  ctx.fillStyle = SEAL_RED;
+  const sealColor = s.color ?? SEAL_RED;
+  ctx.fillStyle = sealColor;
   ctx.fillRect(-w / 2, -h / 2, w, h);
   // Worn seal edge.
-  ctx.strokeStyle = "rgba(179, 55, 43, 0.5)";
+  ctx.strokeStyle = sealColor;
+  ctx.globalAlpha = alpha * 0.5;
   ctx.lineWidth = 3;
   ctx.strokeRect(-w / 2 - 3, -h / 2 - 3, w + 6, h + 6);
+  ctx.globalAlpha = alpha;
 
   ctx.fillStyle = "#f6efdf";
   ctx.textAlign = "center";

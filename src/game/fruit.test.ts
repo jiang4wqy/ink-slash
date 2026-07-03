@@ -43,6 +43,15 @@ describe("sliceFruit", () => {
     const [a, b] = sliceFruit(sample(), 0, 1);
     expect(Math.sign(a.vrot)).toBe(-Math.sign(b.vrot));
   });
+
+  it("falls back to the fruit's own travel direction for a zero-length cut (touch slice)", () => {
+    // A stationary fingertip touched by a falling fruit: cut dir (0,0).
+    const f = sample({ vx: 0, vy: 300 }); // falling straight down
+    const [a, b] = sliceFruit(f, 0, 0);
+    // Halves must still separate (perpendicular to the fall = horizontally).
+    expect(Math.abs(a.vx - b.vx)).toBeGreaterThan(50);
+    expect(Number.isFinite(a.cutAngle)).toBe(true);
+  });
 });
 
 describe("isOffscreen", () => {

@@ -17,12 +17,14 @@ export class HandTracker {
   async init(video: HTMLVideoElement): Promise<void> {
     this.video = video;
 
+    // 60fps ideal halves input latency on cameras that support it; browsers
+    // gracefully fall back to 30. 640×360 keeps inference fast.
     this.stream = await navigator.mediaDevices.getUserMedia({
       video: {
         facingMode: "user",
         width: { ideal: 640 },
         height: { ideal: 360 },
-        frameRate: { ideal: 30 }
+        frameRate: { ideal: 60 }
       },
       audio: false
     });
@@ -71,9 +73,11 @@ async function createLandmarker(fileset: Awaited<ReturnType<typeof FilesetResolv
     baseOptions: { modelAssetPath: "/models/hand_landmarker.task", delegate },
     runningMode: "VIDEO" as const,
     numHands: 2,
-    minHandDetectionConfidence: 0.5,
-    minHandPresenceConfidence: 0.5,
-    minTrackingConfidence: 0.5
+    // Low thresholds keep tracking alive through fast-motion blur — for a
+    // game, briefly tracking a wrong blob beats dropping the blade mid-swipe.
+    minHandDetectionConfidence: 0.35,
+    minHandPresenceConfidence: 0.35,
+    minTrackingConfidence: 0.35
   });
 
   try {

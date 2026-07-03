@@ -11,13 +11,14 @@ export class Scoring {
   private lastSliceAt = -Infinity;
 
   // Registers one sliced fruit at time `t` (ms). Returns the combo depth this
-  // slice reached and the points it earned (base + combo bonus).
-  addSlice(t: number): { combo: number; gained: number } {
+  // slice reached and the points it earned ((base + combo bonus) × multiplier,
+  // where the multiplier comes from an active 「倍」 talisman).
+  addSlice(t: number, multiplier = 1): { combo: number; gained: number } {
     this.comboCount = t - this.lastSliceAt <= COMBO_WINDOW_MS ? this.comboCount + 1 : 1;
     this.lastSliceAt = t;
 
     const bonus = this.comboCount >= 2 ? this.comboCount * 10 : 0;
-    const gained = POINTS_PER_FRUIT + bonus;
+    const gained = (POINTS_PER_FRUIT + bonus) * multiplier;
     this.score += gained;
     return { combo: this.comboCount, gained };
   }
@@ -25,6 +26,12 @@ export class Scoring {
   // A fruit fell off unsliced. Returns remaining lives.
   missFruit(): number {
     this.lives = Math.max(0, this.lives - 1);
+    return this.lives;
+  }
+
+  // 「墨」 talisman: one ink drop back, never above the starting three.
+  restoreLife(): number {
+    this.lives = Math.min(STARTING_LIVES, this.lives + 1);
     return this.lives;
   }
 

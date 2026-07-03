@@ -6,9 +6,12 @@ import type { Fruit, FruitHalf, FruitKind } from "../game/fruit";
 
 const INK = "#2a2320";
 
+type EdibleKind = "persimmon" | "plum" | "watermelon" | "gourd";
+type TalismanKind = "fu_slow" | "fu_double" | "fu_life";
+
 type Palette = { wash: string; wash2: string; detail: string };
 
-const PALETTES: Record<Exclude<FruitKind, "bomb">, Palette> = {
+const PALETTES: Record<EdibleKind, Palette> = {
   persimmon: { wash: "rgba(224, 122, 41, 0.55)", wash2: "rgba(190, 84, 25, 0.35)", detail: "#4a5d3a" },
   plum: { wash: "rgba(148, 62, 108, 0.55)", wash2: "rgba(110, 40, 85, 0.38)", detail: "#4a3540" },
   watermelon: { wash: "rgba(96, 132, 74, 0.6)", wash2: "rgba(62, 96, 50, 0.42)", detail: "#3c5232" },
@@ -16,12 +19,23 @@ const PALETTES: Record<Exclude<FruitKind, "bomb">, Palette> = {
 };
 
 // Interior colours revealed on the cut face of each half.
-const FLESH: Record<Exclude<FruitKind, "bomb">, string> = {
+const FLESH: Record<EdibleKind, string> = {
   persimmon: "rgba(240, 158, 74, 0.75)",
   plum: "rgba(214, 134, 130, 0.72)",
   watermelon: "rgba(206, 74, 66, 0.78)",
   gourd: "rgba(228, 205, 150, 0.75)"
 };
+
+// Paper talismans (power-ups): kanji + accent colour on a paper slip.
+const TALISMANS: Record<TalismanKind, { glyph: string; color: string }> = {
+  fu_slow: { glyph: "凍", color: "#4a6a96" },
+  fu_double: { glyph: "倍", color: "#b3372b" },
+  fu_life: { glyph: "墨", color: "#2a2320" }
+};
+
+function isTalisman(kind: FruitKind): kind is TalismanKind {
+  return kind.startsWith("fu_");
+}
 
 function brushEllipse(ctx: CanvasRenderingContext2D, r: number, squashY: number): void {
   // Two offset passes of varying width fake a hand-drawn brush contour.
@@ -47,9 +61,37 @@ function washFill(ctx: CanvasRenderingContext2D, r: number, squashY: number, p: 
   ctx.fill();
 }
 
+function paintTalisman(ctx: CanvasRenderingContext2D, kind: TalismanKind, r: number): void {
+  const t = TALISMANS[kind];
+  const w = r * 1.3;
+  const h = r * 2.1;
+
+  // Paper slip with a hand-cut shadow and an accent border.
+  ctx.fillStyle = "rgba(42, 35, 32, 0.16)";
+  ctx.fillRect(-w / 2 + 3, -h / 2 + 4, w, h);
+  ctx.fillStyle = "#f6efdf";
+  ctx.fillRect(-w / 2, -h / 2, w, h);
+  ctx.strokeStyle = t.color;
+  ctx.lineWidth = Math.max(2, r * 0.1);
+  ctx.strokeRect(-w / 2, -h / 2, w, h);
+  ctx.strokeStyle = "rgba(42, 35, 32, 0.35)";
+  ctx.lineWidth = 1;
+  ctx.strokeRect(-w / 2 + 4, -h / 2 + 4, w - 8, h - 8);
+
+  ctx.fillStyle = t.color;
+  ctx.font = `700 ${r * 1.05}px "STKaiti", "KaiTi", "DFKai-SB", "Noto Serif SC", serif`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(t.glyph, 0, r * 0.05);
+}
+
 function paintBody(ctx: CanvasRenderingContext2D, kind: FruitKind, r: number): void {
   if (kind === "bomb") {
     paintBomb(ctx, r);
+    return;
+  }
+  if (isTalisman(kind)) {
+    paintTalisman(ctx, kind, r);
     return;
   }
   const p = PALETTES[kind];
@@ -171,7 +213,7 @@ export function drawFruit(ctx: CanvasRenderingContext2D, f: Fruit): void {
 // flat cut face showing the flesh colour (and seeds for watermelon).
 export function drawHalf(ctx: CanvasRenderingContext2D, h: FruitHalf): void {
   const fade = Math.max(0, 1 - h.age / 1.1);
-  if (fade <= 0 || h.kind === "bomb") return;
+  if (fade <= 0 || h.kind === "bomb" || isTalisman(h.kind)) return;
 
   ctx.save();
   ctx.globalAlpha = fade;

@@ -35,6 +35,24 @@ describe("Scoring", () => {
     expect(s.missFruit()).toBe(0);
   });
 
+  it("applies a score multiplier to base points and combo bonus", () => {
+    const s = new Scoring();
+    s.addSlice(1000, 2); // 10 × 2 = 20
+    expect(s.score).toBe(20);
+    const second = s.addSlice(1200, 2); // (10 + 20) × 2 = 60
+    expect(second.gained).toBe(60);
+    expect(s.score).toBe(80);
+  });
+
+  it("restoreLife adds one ink drop, capped at 3", () => {
+    const s = new Scoring();
+    expect(s.restoreLife()).toBe(3); // already full
+    s.missFruit();
+    s.missFruit();
+    expect(s.restoreLife()).toBe(2);
+    expect(s.lives).toBe(2);
+  });
+
   it("reset restores score, combo and lives", () => {
     const s = new Scoring();
     s.addSlice(1000);

@@ -1,4 +1,14 @@
-export type FruitKind = "persimmon" | "plum" | "watermelon" | "gourd" | "bomb";
+// fu_* kinds are paper talismans (power-ups): 凍 slow-mo, 倍 double score,
+// 墨 restore one life. They fly and slice like fruit but never cost a miss.
+export type FruitKind =
+  | "persimmon"
+  | "plum"
+  | "watermelon"
+  | "gourd"
+  | "bomb"
+  | "fu_slow"
+  | "fu_double"
+  | "fu_life";
 
 // Shared gravity for the toss physics and the spawner's launch kinematics.
 export const GRAVITY = 1800; // px/s^2
@@ -55,10 +65,20 @@ const SEPARATION_SPEED = 140; // px/s along the cut normal
 const HALF_SPIN = 2.4; // rad/s, opposite for each half
 
 // Splits a fruit along the blade direction (dirX, dirY): halves inherit the
-// fruit's velocity plus opposite kicks along the cut normal.
+// fruit's velocity plus opposite kicks along the cut normal. A zero-length
+// cut (stationary fingertip touched by the fruit) falls back to the fruit's
+// own travel direction, so halves always separate.
 export function sliceFruit(f: Fruit, dirX: number, dirY: number): [FruitHalf, FruitHalf] {
   f.sliced = true;
-  const len = Math.hypot(dirX, dirY) || 1;
+  if (Math.hypot(dirX, dirY) < 1e-6) {
+    dirX = f.vx;
+    dirY = f.vy;
+    if (Math.hypot(dirX, dirY) < 1e-6) {
+      dirX = 1;
+      dirY = 0.5;
+    }
+  }
+  const len = Math.hypot(dirX, dirY);
   const nx = -dirY / len;
   const ny = dirX / len;
   const cutAngle = Math.atan2(dirY, dirX);

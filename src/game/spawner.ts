@@ -7,17 +7,29 @@ export function bombChance(score: number): number {
   return 0.08 + t * 0.07;
 }
 
+// Waves come faster as the score climbs, from a relaxed opening to a busy
+// late game (floor keeps it humanly playable).
+export function waveInterval(score: number): number {
+  return Math.max(1100, 1900 - score * 0.8);
+}
+
 const FRUIT_KINDS: FruitKind[] = ["persimmon", "plum", "watermelon", "gourd"];
+const TALISMAN_KINDS: FruitKind[] = ["fu_slow", "fu_double", "fu_life"];
 
 const RADII: Record<FruitKind, number> = {
-  persimmon: 34,
-  plum: 26,
-  watermelon: 46,
-  gourd: 38,
-  bomb: 30
+  persimmon: 44,
+  plum: 34,
+  watermelon: 60,
+  gourd: 48,
+  bomb: 34,
+  fu_slow: 30,
+  fu_double: 30,
+  fu_life: 30
 };
 
 const NO_BOMB_BEFORE = 30; // opening waves stay safe
+const NO_TALISMAN_BEFORE = 50; // let players learn the base game first
+const TALISMAN_CHANCE = 0.09;
 
 export class Spawner {
   private nextId = 1;
@@ -25,7 +37,7 @@ export class Spawner {
   constructor(private readonly rng: () => number) {}
 
   next(score: number, w: number, h: number): Fruit[] {
-    const size = Math.min(5, 1 + Math.floor(score / 120) + (this.rng() < 0.4 ? 1 : 0));
+    const size = Math.min(7, 1 + Math.floor(score / 90) + (this.rng() < 0.4 ? 1 : 0));
     const wave: Fruit[] = [];
     for (let i = 0; i < size; i += 1) {
       wave.push(this.spawnOne(score, w, h));
@@ -36,6 +48,15 @@ export class Spawner {
       const target = wave[Math.floor(this.rng() * wave.length)];
       target.kind = "bomb";
       target.r = RADII.bomb;
+    }
+
+    // At most one talisman rides along as a bonus (extra, replaces nothing).
+    if (score >= NO_TALISMAN_BEFORE && this.rng() < TALISMAN_CHANCE) {
+      const kind = TALISMAN_KINDS[Math.floor(this.rng() * TALISMAN_KINDS.length)];
+      const talisman = this.spawnOne(score, w, h);
+      talisman.kind = kind;
+      talisman.r = RADII[kind];
+      wave.push(talisman);
     }
     return wave;
   }

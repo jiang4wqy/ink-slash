@@ -8,7 +8,9 @@ import { segmentCircleHit } from "./game/collision";
 import { GRAVITY, isOffscreen, sliceFruit, stepFruit } from "./game/fruit";
 import type { Fruit, FruitHalf } from "./game/fruit";
 import { Scoring, BestScore } from "./game/scoring";
-import { Spawner } from "./game/spawner";
+import { Spawner, waveInterval } from "./game/spawner";
+import { Effects } from "./game/effects";
+import type { TalismanKind } from "./game/effects";
 import { GameFlow } from "./game/state";
 import { mapNormToCanvas } from "./gesture/coords";
 import { HandTracker } from "./gesture/handTracker";
@@ -16,6 +18,7 @@ import { OneEuroFilter2D } from "./gesture/oneEuro";
 import {
   FONT_STACK,
   drawButton,
+  drawEffects,
   drawComboStamp,
   drawCountdown,
   drawCursor,
@@ -32,8 +35,7 @@ import { SplashSystem, JUICE } from "./render/splash";
 import { drawTrail } from "./render/trail";
 
 const COUNTDOWN_SEC = 3;
-const WAVE_INTERVAL_MS = 1900;
-const MAX_AIRBORNE = 9;
+const MAX_AIRBORNE = 14;
 const SLOWMO_MS = 600;
 const SLOWMO_SCALE = 0.35;
 const DWELL_MS = 900;
@@ -84,6 +86,7 @@ const bestScore = new BestScore({
 const spawner = new Spawner(Math.random);
 const splash = new SplashSystem();
 const sfx = new Sfx();
+const effects = new Effects();
 
 let fruits: Fruit[] = [];
 let halves: FruitHalf[] = [];
@@ -249,6 +252,7 @@ function beginCountdown(): void {
   halves = [];
   stamps = [];
   splash.clear();
+  effects.reset();
   endedByBomb = false;
   isNewRecord = false;
   slowmoUntil = 0;
@@ -265,9 +269,18 @@ function endRun(byBomb: boolean): void {
 }
 
 // --- Slice pass -------------------------------------------------------------------
+// Touch-to-slice: ANY blade contact cuts — no minimum swipe speed. Moving
+// blades contribute their swept segments; a stationary blade (parked mouse /
+// resting fingertip) still cuts fruit that flies into it via a zero-length
+// "contact point" segment. sliceFruit derives the cut direction from the
+// fruit's own motion when the blade isn't moving.
 function applySlices(now: number): void {
-  for (const seg of frameSegments) {
-    if (!seg.armed) continue;
+  const cutters = [...frameSegments];
+  for (const s of slots) {
+    if (s.pos) cutters.push({ ax: s.pos.x, ay: s.pos.y, bx: s.pos.x, by: s.pos.y, speed: 0, armed: false });
+  }
+
+  for (const seg of cutters) {
     const dirX = seg.bx - seg.ax;
     const dirY = seg.by - seg.ay;
     for (const f of fruits) {
@@ -283,9 +296,27 @@ function applySlices(now: number): void {
         return;
       }
 
+      // Talisman pickup: activate its effect, no halves, no miss risk.
+      if (f.kind.startsWith("fu_")) {
+        f.sliced = true;
+        const kind = f.kind as TalismanKind;
+        effects.activate(kind, now);
+        if (kind === "fu_life") scoring.restoreLife();
+        splash.burst(f.x, f.y, dirX, dirY, JUICE[f.kind]);
+        sfx.pluck(5);
+        const meta =
+          kind === "fu_slow"
+            ? { label: "凍 · 时缓", color: "#4a6a96" }
+            : kind === "fu_double"
+              ? { label: "倍 · 双倍", color: undefined }
+              : { label: "墨 +1", color: "#2a2320" };
+        stamps.push({ x: f.x, y: f.y - f.r - 16, n: 0, age: 0, ...meta });
+        continue;
+      }
+
       halves.push(...sliceFruit(f, dirX, dirY));
       splash.burst(f.x, f.y, dirX, dirY, JUICE[f.kind]);
-      const { combo } = scoring.addSlice(now);
+      const { combo } = scoring.addSlice(now, effects.scoreMultiplier(now));
       sfx.slice(combo);
       if (combo >= 2) {
         stamps.push({ x: f.x, y: f.y - f.r - 16, n: combo, age: 0 });
@@ -302,7 +333,7 @@ function applySlices(now: number): void {
 let accumulator = 0;
 
 function updateWorld(realDt: number, now: number): void {
-  const scale = now < slowmoUntil ? SLOWMO_SCALE : 1;
+  const scale = Math.min(now < slowmoUntil ? SLOWMO_SCALE : 1, effects.timeScale(now));
   accumulator += realDt * scale;
 
   while (accumulator >= FIXED_DT) {
@@ -324,7 +355,7 @@ function updateWorld(realDt: number, now: number): void {
   if (missed.length > 0) {
     fruits = fruits.filter((f) => !isOffscreen(f, viewW, viewH));
     for (const f of missed) {
-      if (f.kind === "bomb") continue; // dodging a bomb is free
+      if (f.kind === "bomb" || f.kind.startsWith("fu_")) continue; // bombs & talismans are free to miss
       if (scoring.missFruit() === 0) {
         endRun(false);
         return;
@@ -332,10 +363,10 @@ function updateWorld(realDt: number, now: number): void {
     }
   }
 
-  // Next wave.
+  // Next wave (cadence tightens with score — 循序渐进).
   if (now >= nextWaveAt && fruits.length < MAX_AIRBORNE) {
     fruits.push(...spawner.next(scoring.score, viewW, viewH));
-    nextWaveAt = now + WAVE_INTERVAL_MS;
+    nextWaveAt = now + waveInterval(scoring.score);
   }
 }
 
@@ -381,7 +412,7 @@ function pollHands(now: number, realDt: number): void {
 
   // Slots that matched nothing go stale after a short grace period.
   slots.forEach((slot, i) => {
-    if (!usedSlots.has(i) && now - slot.lastSeen > 160) {
+    if (!usedSlots.has(i) && now - slot.lastSeen > 280) {
       slot.blade.clear();
       slot.filter = new OneEuroFilter2D();
       slot.pos = null;
@@ -449,6 +480,7 @@ function render(now: number): void {
   } else if (flow.state === "playing") {
     drawScore(ctx, scoring.score, bestScore.value);
     drawLives(ctx, scoring.lives, viewW);
+    drawEffects(ctx, effects.remaining(now));
   } else if (flow.state === "gameover") {
     drawGameOverPanel(ctx, viewW, viewH, scoring.score, bestScore.value, isNewRecord);
     if (endedByBomb) {
@@ -497,13 +529,17 @@ if (useTimerLoop) {
       },
       get fruits() {
         return fruits.map((f) => ({ id: f.id, kind: f.kind, x: f.x, y: f.y, r: f.r }));
+      },
+      // Synchronous single frame — lets headless tests pump the loop directly,
+      // immune to hidden-tab timer throttling.
+      step() {
+        tick(performance.now());
       }
     }
   });
 }
 
-function frame(): void {
-  const now = performance.now();
+function tick(now: number): void {
   const realDt = Math.min(0.1, (now - lastFrameAt) / 1000);
   lastFrameAt = now;
 
@@ -531,7 +567,10 @@ function frame(): void {
     frameSegments = [];
     render(now);
   }
+}
 
+function frame(): void {
+  tick(performance.now());
   schedule(frame);
 }
 

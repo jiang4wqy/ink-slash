@@ -122,5 +122,8 @@ export const JUICE: Record<string, string> = {
   plum: "142, 58, 100",
   watermelon: "188, 58, 50",
   gourd: "182, 142, 66",
-  bomb: "30, 24, 20"
+  bomb: "30, 24, 20",
+  fu_slow: "74, 106, 150",
+  fu_double: "179, 55, 43",
+  fu_life: "42, 35, 32"
 };
