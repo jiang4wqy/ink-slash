@@ -6,9 +6,12 @@
 // frame of travel (see oneEuro.test.ts), which needs cutoff ≳ 4.8Hz at
 // 1.2 screens/s. When still the derivative ≈ 0, so jitter suppression keeps
 // working at MIN_CUTOFF regardless of BETA.
-const MIN_CUTOFF = 1.2;
+const MIN_CUTOFF = 1.0;
 const BETA = 3.5;
-const D_CUTOFF = 1;
+// Low derivative cutoff: stationary jitter has a zero-mean derivative, so a
+// heavily smoothed derivative estimate stays ≈0 when still (keeping cutoff at
+// MIN_CUTOFF), while a sustained sweep still converges to its true velocity.
+const D_CUTOFF = 0.5;
 
 function alpha(cutoff: number, dt: number): number {
   const tau = 1 / (2 * Math.PI * cutoff);
