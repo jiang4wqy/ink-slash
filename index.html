@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta
+      name="description"
+      content="一闪 · 墨斩：和风水墨隔空切果。摄像头手势追踪，指尖即刀，墨迹为痕，全程浏览器本地运行。"
+    />
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ctext y='26' font-size='26'%3E%E2%9A%94%EF%B8%8F%3C/text%3E%3C/svg%3E"
+    />
+    <title>一闪 · 墨斩</title>
+    <link rel="stylesheet" href="/src/styles.css" />
+  </head>
+  <body>
+    <main class="stage">
+      <canvas id="stage"></canvas>
+      <video id="cam" playsinline muted></video>
+    </main>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

@@ -1,0 +1,9 @@
+# Normalize text line endings to LF in the repo; let Git convert on checkout.
+* text=auto eol=lf
+
+# Treat these as binary (no EOL conversion, no diff).
+*.png binary
+*.jpg binary
+*.task binary
+*.wasm binary
+*.bat -text
