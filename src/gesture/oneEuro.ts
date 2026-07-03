@@ -2,8 +2,12 @@
 // light smoothing during fast motion (low latency). The right filter for a
 // slashing fingertip, where lag directly ruins the blade feel.
 
+// BETA tuned for slashing: latency during a fast sweep must stay under one
+// frame of travel (see oneEuro.test.ts), which needs cutoff ≳ 4.8Hz at
+// 1.2 screens/s. When still the derivative ≈ 0, so jitter suppression keeps
+// working at MIN_CUTOFF regardless of BETA.
 const MIN_CUTOFF = 1.2;
-const BETA = 0.9;
+const BETA = 3.5;
 const D_CUTOFF = 1;
 
 function alpha(cutoff: number, dt: number): number {
