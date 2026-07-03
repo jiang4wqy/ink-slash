@@ -1,5 +1,8 @@
 export type FruitKind = "persimmon" | "plum" | "watermelon" | "gourd" | "bomb";
 
+// Shared gravity for the toss physics and the spawner's launch kinematics.
+export const GRAVITY = 1800; // px/s^2
+
 export type Fruit = {
   id: number;
   kind: FruitKind;
