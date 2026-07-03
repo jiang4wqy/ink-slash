@@ -63,9 +63,23 @@ fitCanvas();
 // --- Game state ----------------------------------------------------------------
 const flow = new GameFlow();
 const scoring = new Scoring();
+// Storage access is guarded: private-browsing modes can throw on any
+// localStorage touch, and losing the best score must never crash the game.
 const bestScore = new BestScore({
-  get: () => localStorage.getItem("ink-slash:best"),
-  set: (v) => localStorage.setItem("ink-slash:best", v)
+  get: () => {
+    try {
+      return localStorage.getItem("ink-slash:best");
+    } catch {
+      return null;
+    }
+  },
+  set: (v) => {
+    try {
+      localStorage.setItem("ink-slash:best", v);
+    } catch {
+      // best-effort persistence only
+    }
+  }
 });
 const spawner = new Spawner(Math.random);
 const splash = new SplashSystem();
@@ -123,8 +137,26 @@ canvas.addEventListener("pointerdown", (e) => {
   if (b) activateButton(b.id);
 });
 
+// Any first interaction anywhere unlocks audio (belt-and-suspenders for the
+// autoplay policy).
+window.addEventListener("pointerdown", () => sfx.resume(), { once: true });
+window.addEventListener("keydown", () => sfx.resume(), { once: true });
+
+// While the tab is hidden the loop pauses but wall-clock deadlines keep
+// ticking; shift them by the pause so a returning player resumes exactly
+// where they left off (no instant countdown expiry / wave flood).
+let hiddenAt = 0;
 document.addEventListener("visibilitychange", () => {
-  if (!document.hidden) lastFrameAt = performance.now();
+  if (document.hidden) {
+    hiddenAt = performance.now();
+  } else if (hiddenAt > 0) {
+    const now = performance.now();
+    const pause = now - hiddenAt;
+    lastFrameAt = now;
+    countdownEndsAt += pause;
+    nextWaveAt += pause;
+    slowmoUntil += pause;
+  }
 });
 
 // --- Buttons & dwell ------------------------------------------------------------
@@ -310,22 +342,59 @@ function updateWorld(realDt: number, now: number): void {
 // --- Input per frame -----------------------------------------------------------------
 function pollHands(now: number, realDt: number): void {
   if (inputMode !== "hand") return;
-  const tips = tracker.detect(now);
-  for (let i = 0; i < slots.length; i += 1) {
-    const tip = tips[i];
-    if (tip) {
-      const p = mapNormToCanvas(tip.x, tip.y, tracker.videoAspect, viewW, viewH);
-      feedBlade(slots[i], p.x, p.y, now, realDt);
-    } else if (now - slots[i].lastSeen > 160) {
-      // Hand lost: break the stroke and forget filter momentum.
-      slots[i].blade.clear();
-      slots[i].filter = new OneEuroFilter2D();
-      slots[i].pos = null;
-    }
+  const tips = tracker
+    .detect(now)
+    .map((tip) => mapNormToCanvas(tip.x, tip.y, tracker.videoAspect, viewW, viewH));
+
+  // MediaPipe gives no stable hand ids and compacts its output array, so a
+  // hand leaving the frame shifts the survivor to index 0. Match tips to
+  // slots by proximity instead of index — otherwise one hand's coordinates
+  // pollute the other hand's filter and stroke (phantom cross-screen slash).
+  const SNAP_RADIUS = viewH * 0.25;
+  const pairs: { t: number; s: number; d: number }[] = [];
+  tips.forEach((p, t) =>
+    slots.forEach((slot, s) => {
+      if (slot.pos) pairs.push({ t, s, d: Math.hypot(p.x - slot.pos.x, p.y - slot.pos.y) });
+    })
+  );
+  pairs.sort((a, b) => a.d - b.d);
+
+  const claimedTips = new Set<number>();
+  const usedSlots = new Set<number>();
+  for (const { t, s, d } of pairs) {
+    if (claimedTips.has(t) || usedSlots.has(s) || d > SNAP_RADIUS) continue;
+    claimedTips.add(t);
+    usedSlots.add(s);
+    feedBlade(slots[s], tips[t].x, tips[t].y, now, realDt);
   }
+
+  // Unmatched tips (new hand / big jump) take a free slot as a FRESH stroke.
+  tips.forEach((p, t) => {
+    if (claimedTips.has(t)) return;
+    const idx = slots.findIndex((_, i) => !usedSlots.has(i));
+    if (idx < 0) return;
+    usedSlots.add(idx);
+    slots[idx].blade.clear();
+    slots[idx].filter = new OneEuroFilter2D();
+    feedBlade(slots[idx], p.x, p.y, now, realDt);
+  });
+
+  // Slots that matched nothing go stale after a short grace period.
+  slots.forEach((slot, i) => {
+    if (!usedSlots.has(i) && now - slot.lastSeen > 160) {
+      slot.blade.clear();
+      slot.filter = new OneEuroFilter2D();
+      slot.pos = null;
+    }
+  });
 }
 
 function updateDwell(now: number): void {
+  // Dwell-to-activate is a hand-tracking affordance. Mouse users click — and
+  // that click doubles as the user gesture that unlocks the AudioContext
+  // (hover alone is not a user activation, so a dwell-activated 启用摄像头
+  // would leave the whole camera session silent under autoplay policy).
+  if (inputMode !== "hand") return;
   const buttons = menuButtons();
   if (buttons.length === 0) return;
   const cursors = slots.map((s) => s.pos).filter((p): p is { x: number; y: number } => p !== null);

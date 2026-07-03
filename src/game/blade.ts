@@ -12,6 +12,9 @@ export type BladeSegment = {
 const GATE_PX_PER_S = 600; // at the 720px reference viewport height
 const REFERENCE_VIEW_H = 720;
 const TRAIL_MS = 300;
+// A single-push jump longer than this fraction of the viewport height is a
+// tracking glitch (hand reorder / detection flicker), not a slash.
+const TELEPORT_FRACTION = 0.4;
 
 // One blade (fingertip or mouse pointer). Feed filtered points in; get back
 // the swept segment since the last point, with the velocity gate applied so a
@@ -22,6 +25,14 @@ export class Blade {
 
   push(p: BladePoint, viewH: number): BladeSegment | null {
     const prev = this.hasSegment ? this.points[this.points.length - 1] : undefined;
+
+    // Teleport guard: a glitch-sized jump restarts the stroke at the new
+    // location instead of emitting a phantom cross-screen slash.
+    if (prev && Math.hypot(p.x - prev.x, p.y - prev.y) > viewH * TELEPORT_FRACTION) {
+      this.points = [p];
+      return null;
+    }
+
     this.points.push(p);
     this.prune(p.t);
 

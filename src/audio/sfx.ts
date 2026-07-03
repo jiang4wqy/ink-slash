@@ -4,14 +4,28 @@
 
 const MUTE_KEY = "ink-slash:muted";
 
+// Private-browsing modes can throw on ANY localStorage touch — even the
+// typeof check. Audio preferences are best-effort.
+function safeStorage(): Storage | null {
+  try {
+    return typeof localStorage !== "undefined" ? localStorage : null;
+  } catch {
+    return null;
+  }
+}
+
 export class Sfx {
   private ctx: AudioContext | null = null;
   private master: GainNode | null = null;
   private lastWhooshAt = 0;
   muted: boolean;
 
-  constructor(private readonly storage: Storage | null = typeof localStorage !== "undefined" ? localStorage : null) {
-    this.muted = this.storage?.getItem(MUTE_KEY) === "1";
+  constructor(private readonly storage: Storage | null = safeStorage()) {
+    try {
+      this.muted = this.storage?.getItem(MUTE_KEY) === "1";
+    } catch {
+      this.muted = false;
+    }
   }
 
   // Must be called from a user gesture at least once (autoplay policy).
@@ -27,7 +41,11 @@ export class Sfx {
 
   toggleMute(): boolean {
     this.muted = !this.muted;
-    this.storage?.setItem(MUTE_KEY, this.muted ? "1" : "0");
+    try {
+      this.storage?.setItem(MUTE_KEY, this.muted ? "1" : "0");
+    } catch {
+      // best-effort persistence only
+    }
     if (this.master && this.ctx) {
       this.master.gain.setTargetAtTime(this.muted ? 0 : 0.9, this.ctx.currentTime, 0.02);
     }

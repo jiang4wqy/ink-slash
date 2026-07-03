@@ -44,6 +44,20 @@ describe("Blade", () => {
     expect(trail[0].t).toBe(700);
   });
 
+  it("treats a teleport-sized jump as a new stroke, never an armed segment", () => {
+    // A hand-tracking reorder can jump the point across the screen in one
+    // frame; that must not produce a phantom slash.
+    const b = new Blade();
+    b.push({ x: 100, y: 100, t: 0 }, VIEW_H);
+    const jump = b.push({ x: 100, y: 100 + VIEW_H * 0.5, t: 16 }, VIEW_H); // half a screen in 16ms
+    expect(jump).toBeNull();
+    // The next normal-speed point continues from the NEW location.
+    const next = b.push({ x: 130, y: 100 + VIEW_H * 0.5, t: 116 }, VIEW_H);
+    expect(next).not.toBeNull();
+    expect(next!.ax).toBe(100);
+    expect(next!.ay).toBe(100 + VIEW_H * 0.5);
+  });
+
   it("clear resets the segment chain", () => {
     const b = new Blade();
     b.push({ x: 0, y: 0, t: 0 }, VIEW_H);
