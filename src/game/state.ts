@@ -1,4 +1,4 @@
-export type GameState = "menu" | "countdown" | "playing" | "stageclear" | "gameover";
+export type GameState = "menu" | "countdown" | "playing" | "stageclear" | "paused" | "gameover";
 
 // Tiny explicit state machine; illegal transitions are no-ops so stray UI
 // events (double clicks, late timers) can never corrupt the flow.
@@ -26,11 +26,24 @@ export class GameFlow {
     if (this.state === "playing") this.state = "gameover";
   }
 
+  // Pause panel: resume continues, restart re-runs from act one, toMenu quits.
+  pause(): void {
+    if (this.state === "playing") this.state = "paused";
+  }
+
+  resume(): void {
+    if (this.state === "paused") this.state = "playing";
+  }
+
+  restart(): void {
+    if (this.state === "paused") this.state = "countdown";
+  }
+
   replay(): void {
     if (this.state === "gameover") this.state = "countdown";
   }
 
   toMenu(): void {
-    if (this.state === "gameover") this.state = "menu";
+    if (this.state === "gameover" || this.state === "paused") this.state = "menu";
   }
 }

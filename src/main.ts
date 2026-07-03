@@ -100,6 +100,7 @@ let halves: FruitHalf[] = [];
 let stamps: ComboStamp[] = [];
 let stageRun = new StageRun(1);
 let stageClearStartedAt = 0;
+let pausedAt = 0;
 let countdownEndsAt = 0;
 let nextWaveAt = 0;
 let slowmoUntil = 0;
@@ -200,6 +201,31 @@ document.addEventListener("visibilitychange", () => {
   }
 });
 
+function doPause(): void {
+  if (flow.state !== "playing") return;
+  flow.pause();
+  pausedAt = performance.now();
+  dwell.clear();
+}
+
+function doResume(): void {
+  if (flow.state !== "paused") return;
+  // Shift wall-clock deadlines by the pause so nothing "catches up" at once.
+  const pause = performance.now() - pausedAt;
+  nextWaveAt += pause;
+  slowmoUntil += pause;
+  flow.resume();
+  dwell.clear();
+}
+
+window.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" || e.key === " ") {
+    e.preventDefault();
+    if (flow.state === "playing") doPause();
+    else if (flow.state === "paused") doResume();
+  }
+});
+
 // --- Buttons & dwell ------------------------------------------------------------
 const dwell = new Map<string, number>(); // button id -> dwell start ms
 
@@ -221,6 +247,19 @@ function menuButtons(): ButtonSpec[] {
       { id: "home", x, y: viewH * 0.52 + 92, w, h: 56, label: "回主页" }
     ];
   }
+  if (flow.state === "playing") {
+    // Small deliberate pause target below the ink-drop lives.
+    return [{ id: "pause", x: viewW - 132, y: 78, w: 104, h: 40, label: "休 · 暂停" }];
+  }
+  if (flow.state === "paused") {
+    return [
+      { id: "resume", x, y: viewH * 0.4, w, h: 64, label: "继续" },
+      { id: "restart", x, y: viewH * 0.4 + 82, w, h: 56, label: "重新开始" },
+      { id: "home", x, y: viewH * 0.4 + 156, w, h: 56, label: "回主页" },
+      { id: "mute", x, y: viewH * 0.4 + 230, w, h: 44, label: sfx.muted ? "音效：关" : "音效：开" },
+      { id: "ghost", x, y: viewH * 0.4 + 288, w, h: 44, label: `人影：${["关", "淡", "浓"][ghostLevel]}` }
+    ];
+  }
   return [];
 }
 
@@ -240,6 +279,13 @@ function activateButton(id: string): void {
     sfx.toggleMute();
   } else if (id === "ghost") {
     cycleGhost();
+  } else if (id === "pause") {
+    doPause();
+  } else if (id === "resume") {
+    doResume();
+  } else if (id === "restart") {
+    flow.restart();
+    beginCountdown();
   } else if (id === "replay") {
     flow.replay();
     beginCountdown();
@@ -513,9 +559,11 @@ function drawGhost(): void {
   const p00 = mapNormToCanvas(0, 0, tracker.videoAspect, viewW, viewH);
   const p11 = mapNormToCanvas(1, 1, tracker.videoAspect, viewW, viewH);
   ctx.save();
-  ctx.globalCompositeOperation = "multiply";
-  ctx.globalAlpha = ghostLevel === 1 ? 0.16 : 0.3;
-  ctx.filter = "grayscale(1) contrast(0.9) brightness(1.15)";
+  // Normal blend, not multiply: multiply vanished in bright rooms (a near-
+  // white camera image barely darkens the paper). Grayscale + sepia keeps it
+  // reading as ink wash rather than a photo.
+  ctx.globalAlpha = ghostLevel === 1 ? 0.34 : 0.55;
+  ctx.filter = "grayscale(1) contrast(1.3) brightness(1.05) sepia(0.28)";
   // Mirror horizontally to match the mirrored blade coordinates.
   ctx.translate(viewW, 0);
   ctx.scale(-1, 1);
@@ -578,6 +626,22 @@ function render(now: number): void {
       Math.min(1, (now - stageClearStartedAt) / STAGECLEAR_MS)
     );
     drawScore(ctx, scoring.score, bestScore.value);
+    drawLives(ctx, scoring.lives, viewW);
+  } else if (flow.state === "paused") {
+    ctx.fillStyle = "rgba(236, 229, 214, 0.62)";
+    ctx.fillRect(0, 0, viewW, viewH);
+    ctx.save();
+    ctx.textAlign = "center";
+    ctx.textBaseline = "alphabetic";
+    ctx.fillStyle = "#2a2320";
+    ctx.font = `700 84px ${FONT_STACK}`;
+    ctx.fillText("休", viewW / 2, viewH * 0.28);
+    ctx.font = `400 18px ${FONT_STACK}`;
+    ctx.fillStyle = "rgba(42, 35, 32, 0.65)";
+    ctx.fillText("Esc / 空格 亦可继续", viewW / 2, viewH * 0.28 + 34);
+    ctx.restore();
+    drawScore(ctx, scoring.score, bestScore.value);
+    drawStageInfo(ctx, stageRun.stage, stageRun.stageScore, stageRun.config.target);
     drawLives(ctx, scoring.lives, viewW);
   } else if (flow.state === "gameover") {
     drawGameOverPanel(ctx, viewW, viewH, scoring.score, bestScore.value, isNewRecord);
@@ -677,8 +741,9 @@ function tick(now: number): void {
     if (flow.state === "playing") {
       applySlices(now);
       updateWorld(realDt, now);
+      updateDwell(now); // only the pause button exists while playing
     } else {
-      splash.update(realDt);
+      if (flow.state !== "paused") splash.update(realDt);
       updateDwell(now);
     }
     frameSegments = [];

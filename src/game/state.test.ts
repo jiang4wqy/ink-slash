@@ -45,6 +45,45 @@ describe("GameFlow", () => {
     expect(g.state).toBe("menu");
   });
 
+  it("pauses from playing and resumes back to playing", () => {
+    const g = new GameFlow();
+    g.start();
+    g.countdownDone();
+    g.pause();
+    expect(g.state).toBe("paused");
+    g.resume();
+    expect(g.state).toBe("playing");
+  });
+
+  it("restart from pause goes to countdown; home from pause goes to menu", () => {
+    const g = new GameFlow();
+    g.start();
+    g.countdownDone();
+    g.pause();
+    g.restart();
+    expect(g.state).toBe("countdown");
+
+    const h = new GameFlow();
+    h.start();
+    h.countdownDone();
+    h.pause();
+    h.toMenu();
+    expect(h.state).toBe("menu");
+  });
+
+  it("pause is only reachable from playing", () => {
+    const g = new GameFlow();
+    g.pause();
+    expect(g.state).toBe("menu");
+    g.start();
+    g.pause();
+    expect(g.state).toBe("countdown");
+    g.countdownDone();
+    g.gameOver();
+    g.pause();
+    expect(g.state).toBe("gameover");
+  });
+
   it("ignores illegal transitions", () => {
     const g = new GameFlow();
     g.countdownDone(); // not in countdown
